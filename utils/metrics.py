@@ -1,5 +1,6 @@
 # Model validation metrics
 
+from logging import log
 import warnings
 from pathlib import Path
 
@@ -226,6 +227,47 @@ def bbox_iou(box1, box2, x1y1x2y2=True, GIoU=False, DIoU=False, CIoU=False, eps=
             return iou - (c_area - union) / c_area  # GIoU
     else:
         return iou  # IoU
+
+
+def bbox_reg_loss(box1, box2, x1y1x2y2=True, eps=1e-7):
+    # Returns the regression loss of box1 to box2. box1 is 4, box2 is nx4
+    box2 = box2.T
+
+    # Get the coordinates of bounding boxes
+    if x1y1x2y2:  # transform from xyxy to xywh
+        box1[:2], box1[2:] = (box1[:2] + box1[2:]) / 2, (box1[2:] - box1[:2]) / 2
+        box2[:2], box2[2:] = (box2[:2] + box2[2:]) / 2, (box2[2:] - box2[:2]) / 2
+
+    loss = torch.mean(((box1 - box2) / (box2 + eps)) ** 2)
+
+    return loss
+
+
+def _smooth_l1_loss(t1, t2, weights=1., sigma=1.):
+    sigma2 = sigma ** 2
+    diff = torch.abs(weights * (t1 - t2))
+    flag = (diff.data < (1. / sigma2)).float()
+    loss = torch.sum(flag * (sigma2 / 2.) * (diff ** 2) +
+                     (1 - flag) * (diff - 0.5 / sigma2))
+    return loss
+
+
+def bbox_smooth_l1_loss(box1, box2, box0, x1y1x2y2=True, eps=1e-7):
+    # Returns the smooth regression loss of box1 to box2. box1 is 4, box2 is nx4
+    box2 = box2.T
+    box0 = box0.T
+
+    # Get the coordinates of bounding boxes
+    if x1y1x2y2:  # transform from xyxy to xywh
+        box1[:2], box1[2:] = (box1[:2] + box1[2:]) / 2, (box1[2:] - box1[:2]) / 2
+        box2[:2], box2[2:] = (box2[:2] + box2[2:]) / 2, (box2[2:] - box2[:2]) / 2
+
+    box1[:2], box1[2:] = (box1[:2] - box2[:2]) / (box0 + eps), torch.log(box1[2:] / (box0 + eps))
+    box2[:2], box2[2:] = (box2[:2] - box2[:2]) / (box0 + eps), torch.log(box2[2:] / (box0 + eps))
+
+    loss = _smooth_l1_loss(box1, box2)
+
+    return loss
 
 
 def box_iou(box1, box2):

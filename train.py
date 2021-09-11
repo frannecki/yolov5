@@ -257,6 +257,7 @@ def train(hyp,  # path/to/hyp.yaml or hyp dictionary
 
     # Model parameters
     hyp['box'] *= 3. / nl  # scale to layers
+    hyp['box_reg'] = 3. / nl
     hyp['cls'] *= nc / 80. * 3. / nl  # scale to classes and layers
     hyp['obj'] *= (imgsz / 640) ** 2 * 3. / nl  # scale to image size and layers
     hyp['label_smoothing'] = opt.label_smoothing

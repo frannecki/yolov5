@@ -3,7 +3,7 @@
 import torch
 import torch.nn as nn
 
-from utils.metrics import bbox_iou
+from utils.metrics import bbox_iou, bbox_reg_loss, bbox_smooth_l1_loss
 from utils.torch_utils import is_parallel
 
 
@@ -114,7 +114,7 @@ class ComputeLoss:
 
     def __call__(self, p, targets):  # predictions, targets, model
         device = targets.device
-        lcls, lbox, lobj = torch.zeros(1, device=device), torch.zeros(1, device=device), torch.zeros(1, device=device)
+        lcls, lbox, lbox_reg, lobj = torch.zeros(1, device=device), torch.zeros(1, device=device), torch.zeros(1, device=device), torch.zeros(1, device=device)
         tcls, tbox, indices, anchors = self.build_targets(p, targets)  # targets
 
         # Losses
@@ -131,6 +131,8 @@ class ComputeLoss:
                 pwh = (ps[:, 2:4].sigmoid() * 2) ** 2 * anchors[i]
                 pbox = torch.cat((pxy, pwh), 1)  # predicted box
                 iou = bbox_iou(pbox.T, tbox[i], x1y1x2y2=False, CIoU=True)  # iou(prediction, target)
+                # lbox_reg += bbox_reg_loss(pbox.T, tbox[i], x1y1x2y2=False)  # iou(prediction, target)
+                lbox_reg += bbox_smooth_l1_loss(pbox.T, tbox[i], anchors[i], x1y1x2y2=False)
                 lbox += (1.0 - iou).mean()  # iou loss
 
                 # Objectness
@@ -158,11 +160,12 @@ class ComputeLoss:
         if self.autobalance:
             self.balance = [x / self.balance[self.ssi] for x in self.balance]
         lbox *= self.hyp['box']
+        lbox_reg *= self.hyp['box_reg']
         lobj *= self.hyp['obj']
         lcls *= self.hyp['cls']
         bs = tobj.shape[0]  # batch size
 
-        loss = lbox + lobj + lcls
+        loss = lbox + lbox_reg + lobj + lcls
         return loss * bs, torch.cat((lbox, lobj, lcls, loss)).detach()
 
     def build_targets(self, p, targets):
